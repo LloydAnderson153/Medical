@@ -86,6 +86,18 @@ app.post('/signup', (req, res) => {
   });
 });
 
+const CryptoJS = require('crypto-js');
+const SECRET_KEY = 'your_secret_key';  // Change this to a secure key
+
+function encryptData(data) {
+    return CryptoJS.AES.encrypt(data, SECRET_KEY).toString();
+}
+
+function decryptData(encryptedData) {
+    const bytes = CryptoJS.AES.decrypt(encryptedData, SECRET_KEY);
+    return bytes.toString(CryptoJS.enc.Utf8);
+}
+
 /*
 const checkRole = (roles) => {
   return (req, res, next) => {
@@ -257,18 +269,23 @@ app.post('/patients', authenticate, (req, res) => {
   });
 });
 
-app.get('/patients/:ssn', authenticate, (req, res) => {
+app.get('/patients/:ssn', authenticate, async (req, res) => {
   const { ssn } = req.params;
 
+  const encryptedSSN = encryptData(ssn);
+
   // Fetch all patients and compare SSNs using bcrypt
-  db.all("SELECT * FROM patients", [], (err, rows) => {
+  db.all("SELECT * FROM patients", [], async (err, rows) => {
     if (err) return res.status(500).json({ message: 'Error fetching patients', error: err.message });
 
     // Find the patient with the matching SSN
-    const patient = rows.find((row) => bcrypt.compareSync(ssn, row.ssn));
-    if (!patient) return res.status(404).json({ message: 'Patient not found' });
+    for (const row of rows) {
+      if (await bcrypt.compare(encryptedSSN, row.ssn)) {
+        return res.status(200).json(row);
+      }
+    }
 
-    res.status(200).json(patient); // Return the matched patient
+    return res.status(404).json({ message: 'Patient not found' }); // Return the matched patient
   });
 });
 
@@ -294,10 +311,11 @@ app.get('/doctor/patients', checkRole(['doctor']), (req, res) => {
 });
 
 // Add patient record (for demo purposes)
-app.post('/patients', authenticate, checkRole(['doctor']), (req, res) => {
+app.post('/patients', authenticate, checkRole(['doctor']), async (req, res) => {
   const {name, age, medical_history, ssn} = req.body;
-  const encryptedSSN = bcrypt.hashSync(ssn, 10);
-  db.run("INSERT INTO patients (name, age, medical_history, ssn) VALUES (?, ?, ?, ?)", [name, age, medical_history, encryptedSSN], function (err) {
+  const encryptedSSN = encryptData(ssn);
+  const hashedSSN = bcrypt.hashSync(encryptedSSN, 10);
+  db.run("INSERT INTO patients (name, age, medical_history, ssn) VALUES (?, ?, ?, ?)", [name, age, medical_history, hashedSSN], function (err) {
     if (err) return res.status(500).json({ message: 'Error adding patient'});
     res.status(200).json({ message: 'Patient added' });
   });
