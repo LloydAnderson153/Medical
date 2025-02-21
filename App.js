@@ -140,6 +140,10 @@ const fetchAccessRecords = async () => {
 
   const handleAddPatient = async () => {
     try {
+      if (!patientSSN) {
+        alert("SSN is required");
+        return;
+      }
      logAction("Access patients", "adding patient");
       const patientData = {
         name: patientName,

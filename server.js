@@ -86,16 +86,42 @@ app.post('/signup', (req, res) => {
   });
 });
 
+require('dotenv').config();
 const CryptoJS = require('crypto-js');
-const SECRET_KEY = 'your_secret_key';  // Change this to a secure key
+const SECRET_KEY = CryptoJS.enc.Hex.parse(process.env.SECRET_KEY);
+
+if (!process.env.SECRET_KEY) {
+  console.error("SECRET_KEY is missing from .env file");
+  process.exit(1);
+}
 
 function encryptData(data) {
-    return CryptoJS.AES.encrypt(data, SECRET_KEY).toString();
+  const iv = CryptoJS.lib.WordArray.random(16);
+  const encrypted = CryptoJS.AES.encrypt(data, SECRET_KEY, {
+      iv: iv,
+      mode: CryptoJS.mode.CBC,
+      padding: CryptoJS.pad.Pkcs7
+  });
+
+  return iv.toString(CryptoJS.enc.Hex) + ':' + encrypted.toString();
 }
 
 function decryptData(encryptedData) {
-    const bytes = CryptoJS.AES.decrypt(encryptedData, SECRET_KEY);
-    return bytes.toString(CryptoJS.enc.Utf8);
+  const parts = encryptedData.split(':');
+  if (parts.length !== 2) {
+      return null;
+  }
+
+  const iv = CryptoJS.enc.Hex.parse(parts[0]);
+  const encryptedText = parts[1];
+
+  const decrypted = CryptoJS.AES.decrypt(encryptedText, SECRET_KEY, {
+      iv: iv,
+      mode: CryptoJS.mode.CBC,
+      padding: CryptoJS.pad.Pkcs7
+  });
+
+  return decrypted.toString(CryptoJS.enc.Utf8);
 }
 
 /*
@@ -276,7 +302,7 @@ app.get('/patients/:ssn', authenticate, async (req, res) => {
 
   // Fetch all patients and compare SSNs using bcrypt
   db.all("SELECT * FROM patients", [], async (err, rows) => {
-    if (err) return res.status(500).json({ message: 'Error fetching patients', error: err.message });
+    if (err) return res.status(500).json({ message: 'Error fetching patients' });
 
     // Find the patient with the matching SSN
     for (const row of rows) {
@@ -285,7 +311,7 @@ app.get('/patients/:ssn', authenticate, async (req, res) => {
       }
     }
 
-    return res.status(404).json({ message: 'Patient not found' }); // Return the matched patient
+    return res.status(404).json({ message: 'Patient not found' });
   });
 });
 
@@ -313,8 +339,11 @@ app.get('/doctor/patients', checkRole(['doctor']), (req, res) => {
 // Add patient record (for demo purposes)
 app.post('/patients', authenticate, checkRole(['doctor']), async (req, res) => {
   const {name, age, medical_history, ssn} = req.body;
+  if (!ssn) {
+    return res.status(400).json({ message: 'SSN is required' });
+  }
   const encryptedSSN = encryptData(ssn);
-  const hashedSSN = bcrypt.hashSync(encryptedSSN, 10);
+  const hashedSSN = await bcrypt.hashSync(encryptedSSN, 10);
   db.run("INSERT INTO patients (name, age, medical_history, ssn) VALUES (?, ?, ?, ?)", [name, age, medical_history, hashedSSN], function (err) {
     if (err) return res.status(500).json({ message: 'Error adding patient'});
     res.status(200).json({ message: 'Patient added' });
